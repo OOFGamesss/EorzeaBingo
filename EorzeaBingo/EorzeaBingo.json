@@ -1,0 +1,13 @@
+{
+  "Author": "OOFGames",
+  "Name": "EorzeaBingo",
+  "Punchline": "Play Bingo with your friends in Eorzea!",
+  "Description": "Host and play fully featured Bingo rounds with your friends! Generates custom boards to chat and authenticates winning calls automatically. Type /bingo to open the main window, or /bingoconfig for settings.",
+  "ApplicableVersion": "any",
+  "Tags": [
+    "bingo",
+    "minigame",
+    "chat",
+    "party"
+  ]
+}
