@@ -4,7 +4,7 @@ Eorzea Bingo is a fully featured, chat driven multiplayer Bingo game plugin for 
 
 This plugin allows players to host and join synchronised games directly inside the game client, using nothing but native chat messages to coordinate state. It automatically detects, validates, and marks off game boards in real time without the need for external web services or complex server infrastructure.
 
-![Lobby Window](Data/lobby-screenshot.png?v=2)
+![Lobby Window](Data/lobby-screenshot.png?v=3)
 
 ## Important Note on Chat Messages
 
