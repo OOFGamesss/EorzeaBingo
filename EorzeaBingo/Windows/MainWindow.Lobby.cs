@@ -3,6 +3,7 @@ using System.Linq;
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Utility;
+using Dalamud.Interface.Utility.Raii;
 
 namespace EorzeaBingo.Windows;
 
@@ -52,51 +53,53 @@ public partial class MainWindow
         ImGui.TextColored(new Vector4(0.7f, 0.7f, 0.7f, 1f), alphaText);
         ImGui.Spacing();
 
-        if (ImGui.BeginTabBar("LobbyTabs"))
+        using var tabBar = ImRaii.TabBar("LobbyTabs");
+        if (tabBar)
         {
-            if (ImGui.BeginTabItem("Join Game"))
+            using (var joinTab = ImRaii.TabItem("Join Game"))
             {
-                ImGui.Text("Discovered Rooms:");
-                ImGui.Spacing();
+                if (joinTab)
+                {
+                    ImGui.Text("Discovered Rooms:");
+                    ImGui.Spacing();
 
-                var discovered = state.DiscoveredRooms.ToList();
-                if (discovered.Count == 0)
-                {
-                    ImGui.Text("No active rooms discovered in chat yet.");
-                }
-                else
-                {
-                    foreach (var room in discovered)
+                    var discovered = state.DiscoveredRooms.ToList();
+                    if (discovered.Count == 0)
                     {
-                        if (ImGui.Button($"Join Room {room.Key} (Host: {room.Value})"))
+                        ImGui.Text("No active rooms discovered in chat yet.");
+                    }
+                    else
+                    {
+                        foreach (var room in discovered)
                         {
-                            _plugin.JoinBingoRoom(room.Key, room.Value);
+                            if (ImGui.Button($"Join Room {room.Key} (Host: {room.Value})"))
+                            {
+                                _plugin.JoinBingoRoom(room.Key, room.Value);
+                            }
                         }
                     }
                 }
-                ImGui.EndTabItem();
             }
 
-            if (ImGui.BeginTabItem("Host Game"))
+            using (var hostTab = ImRaii.TabItem("Host Game"))
             {
-                ImGui.Spacing();
-                ImGui.Text("Ready to start?");
-
-                var isCooldown = _plugin.IsChatOnCooldown;
-                if (isCooldown) ImGui.BeginDisabled();
-                var createBtnText = isCooldown ? $"Create Room ({_plugin.ChatCooldownSeconds})" : "Create Room";
-
-                if (ImGui.Button(createBtnText))
+                if (hostTab)
                 {
-                    _plugin.StartBingoRoom();
-                    _plugin.LastChatActionTime = DateTime.UtcNow;
+                    ImGui.Spacing();
+                    ImGui.Text("Ready to start?");
+
+                    var isCooldown = _plugin.IsChatOnCooldown;
+                    using (ImRaii.Disabled(isCooldown))
+                    {
+                        var createBtnText = isCooldown ? $"Create Room ({_plugin.ChatCooldownSeconds})" : "Create Room";
+                        if (ImGui.Button(createBtnText))
+                        {
+                            _plugin.StartBingoRoom();
+                            _plugin.LastChatActionTime = DateTime.UtcNow;
+                        }
+                    }
                 }
-
-                if (isCooldown) ImGui.EndDisabled();
-
-                ImGui.EndTabItem();
             }
-            ImGui.EndTabBar();
         }
 
         var btnWidth = ImGui.CalcTextSize("Settings").X + ImGui.GetStyle().FramePadding.X * 2;

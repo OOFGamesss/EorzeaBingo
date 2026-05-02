@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using System.Numerics;
 using Dalamud.Interface.Utility;
+using Dalamud.Interface.Utility.Raii;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Plugin.Services;
 
@@ -14,13 +15,12 @@ public partial class MainWindow
         var availX = ImGui.GetContentRegionAvail().X;
         var scale = ImGuiHelpers.GlobalScale;
 
-        // Let's fit 10 numbers per row to save space for the host
         var columns = 10;
         var dynamicCellSize = Math.Max(MinCellSize * 0.6f * scale, (availX - (ImGui.GetStyle().ItemSpacing.X * (columns - 1))) / (float)columns);
         var cellSize = new Vector2(dynamicCellSize, dynamicCellSize);
 
-        if (!ImGui.BeginTable("HostGrid", columns, ImGuiTableFlags.Borders | ImGuiTableFlags.SizingStretchSame))
-            return;
+        using var table = ImRaii.Table("HostGrid", columns, ImGuiTableFlags.Borders | ImGuiTableFlags.SizingStretchSame);
+        if (!table) return;
 
         for (var i = 1; i <= 70; i++)
         {
@@ -38,8 +38,6 @@ public partial class MainWindow
             if (isCalled)
                 ImGui.PopStyleColor();
         }
-
-        ImGui.EndTable();
     }
 
     private void DrawPlayersTab(BingoGameState state)
@@ -56,57 +54,59 @@ public partial class MainWindow
             return;
         }
 
-        if (ImGui.BeginTable("PlayersTable", 4, ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg))
+        using var playersTable = ImRaii.Table("PlayersTable", 4, ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg);
+        if (!playersTable) return;
+
+        ImGui.TableSetupColumn("Player", ImGuiTableColumnFlags.WidthStretch, 0.4f);
+        ImGui.TableSetupColumn("Best", ImGuiTableColumnFlags.WidthStretch, 0.2f);
+        ImGui.TableSetupColumn("Bingo?", ImGuiTableColumnFlags.WidthStretch, 0.2f);
+        ImGui.TableSetupColumn("Actions", ImGuiTableColumnFlags.WidthStretch, 0.2f);
+        ImGui.TableHeadersRow();
+
+        foreach (var p in players)
         {
-            ImGui.TableSetupColumn("Player", ImGuiTableColumnFlags.WidthStretch, 0.4f);
-            ImGui.TableSetupColumn("Best", ImGuiTableColumnFlags.WidthStretch, 0.2f);
-            ImGui.TableSetupColumn("Bingo?", ImGuiTableColumnFlags.WidthStretch, 0.2f);
-            ImGui.TableSetupColumn("Actions", ImGuiTableColumnFlags.WidthStretch, 0.2f);
-            ImGui.TableHeadersRow();
+            var isAmber = p.ClaimState == ClaimState.Rejected || (p.ClaimState == ClaimState.Pending && p.MaxLineSize < 5);
+            var isGreen = p.ClaimState == ClaimState.Approved || (p.ClaimState == ClaimState.Pending && p.MaxLineSize >= 5);
 
-            foreach (var p in players)
+            if (isAmber)
+                ImGui.PushStyleColor(ImGuiCol.Text, 0xFF00A5FF);
+            else if (isGreen)
+                ImGui.PushStyleColor(ImGuiCol.Text, CalledColor);
+
+            ImGui.TableNextRow();
+            ImGui.TableNextColumn();
+            ImGui.Text(p.PlayerName);
+
+            ImGui.TableNextColumn();
+            ImGui.Text($"{p.MaxLineSize}/5");
+
+            ImGui.TableNextColumn();
+            ImGui.Text(p.ClaimState.ToString());
+
+            if (isAmber || isGreen)
+                ImGui.PopStyleColor();
+
+            ImGui.TableNextColumn();
+
+            if (ImGui.Button($"View##{p.PlayerName}", new Vector2(-1, 0)))
             {
-                var isAmber = p.ClaimState == ClaimState.Rejected || (p.ClaimState == ClaimState.Pending && p.MaxLineSize < 5);
-                var isGreen = p.ClaimState == ClaimState.Approved || (p.ClaimState == ClaimState.Pending && p.MaxLineSize >= 5);
+                _viewModalOpen = true;
+                ImGui.OpenPopup($"ViewCard_{p.PlayerName}");
+            }
 
-                if (isAmber)
-                    ImGui.PushStyleColor(ImGuiCol.Text, 0xFF00A5FF); 
-                else if (isGreen)
-                    ImGui.PushStyleColor(ImGuiCol.Text, CalledColor);
+            if (ImGui.BeginPopupModal($"ViewCard_{p.PlayerName}", ref _viewModalOpen, ImGuiWindowFlags.AlwaysAutoResize))
+            {
+                DrawPlayerCardModal(state, p.PlayerName);
+                if (ImGui.Button("Close")) ImGui.CloseCurrentPopup();
+                ImGui.EndPopup();
+            }
 
-                ImGui.TableNextRow();
-                ImGui.TableNextColumn();
-                ImGui.Text(p.PlayerName);
+            if (p.ClaimState == ClaimState.Pending)
+            {
+                var isCooldown = _plugin.IsChatOnCooldown;
 
-                ImGui.TableNextColumn();
-                ImGui.Text($"{p.MaxLineSize}/5");
-
-                ImGui.TableNextColumn();
-                ImGui.Text(p.ClaimState.ToString());
-
-                if (isAmber || isGreen)
-                    ImGui.PopStyleColor();
-
-                ImGui.TableNextColumn();
-
-                if (ImGui.Button($"View##{p.PlayerName}", new Vector2(-1, 0)))
+                using (ImRaii.Disabled(isCooldown))
                 {
-                    _viewModalOpen = true;
-                    ImGui.OpenPopup($"ViewCard_{p.PlayerName}");
-                }
-
-                if (ImGui.BeginPopupModal($"ViewCard_{p.PlayerName}", ref _viewModalOpen, ImGuiWindowFlags.AlwaysAutoResize))
-                {
-                    DrawPlayerCardModal(state, p.PlayerName);
-                    if (ImGui.Button("Close")) ImGui.CloseCurrentPopup();
-                    ImGui.EndPopup();
-                }
-
-                if (p.ClaimState == ClaimState.Pending)
-                {
-                    var isCooldown = _plugin.IsChatOnCooldown;
-                    if (isCooldown) ImGui.BeginDisabled();
-
                     var approveTxt = isCooldown ? $"Valid Claim ({_plugin.ChatCooldownSeconds})" : "Valid Claim";
                     if (ImGui.Button($"{approveTxt}##Approve_{p.PlayerName}", new Vector2(-1, 0)))
                     {
@@ -140,11 +140,8 @@ public partial class MainWindow
                         state.RejectClaim(p.PlayerName);
                         _plugin.LastChatActionTime = DateTime.UtcNow;
                     }
-
-                    if (isCooldown) ImGui.EndDisabled();
                 }
             }
-            ImGui.EndTable();
         }
     }
 
@@ -161,48 +158,47 @@ public partial class MainWindow
         var scale = ImGuiHelpers.GlobalScale;
         var cellSize = new Vector2(MinCellSize * 0.8f * scale, MinCellSize * 0.8f * scale);
 
-        if (ImGui.BeginTable($"ModalGrid_{playerName}", 5, ImGuiTableFlags.Borders | ImGuiTableFlags.SizingFixedFit))
+        using var modalTable = ImRaii.Table($"ModalGrid_{playerName}", 5, ImGuiTableFlags.Borders | ImGuiTableFlags.SizingFixedFit);
+        if (!modalTable) return;
+
+        var headers = new[] { "B", "I", "N", "G", "O" };
+        ImGui.TableNextRow();
+        for (var col = 0; col < 5; col++)
         {
-            var headers = new[] { "B", "I", "N", "G", "O" };
+            var colColor = col switch
+            {
+                0 => 0xFF4A4ADD,
+                1 => 0xFF4A90E2,
+                2 => 0xFF4AD24A,
+                3 => 0xFFD24A4A,
+                4 => 0xFFC04AD2,
+                _ => FreeSpaceColor
+            };
+
+            ImGui.TableNextColumn();
+            ImGui.SetWindowFontScale(1.5f);
+            ImGui.PushStyleColor(ImGuiCol.Button, colColor);
+            ImGui.PushStyleColor(ImGuiCol.ButtonHovered, colColor);
+            ImGui.PushStyleColor(ImGuiCol.ButtonActive, colColor);
+            ImGui.PushStyleColor(ImGuiCol.Text, 0xFFFFFFFF);
+            ImGui.Button(headers[col], cellSize);
+            ImGui.PopStyleColor(4);
+            ImGui.SetWindowFontScale(1.0f);
+        }
+        for (var row = 0; row < 5; row++)
+        {
             ImGui.TableNextRow();
             for (var col = 0; col < 5; col++)
             {
-                var colColor = col switch
-                {
-                    0 => 0xFF4A4ADD, 
-                    1 => 0xFF4A90E2, 
-                    2 => 0xFF4AD24A, 
-                    3 => 0xFFD24A4A, 
-                    4 => 0xFFC04AD2, 
-                    _ => FreeSpaceColor
-                };
-
                 ImGui.TableNextColumn();
-                ImGui.SetWindowFontScale(1.5f);
-                ImGui.PushStyleColor(ImGuiCol.Button, colColor);
-                ImGui.PushStyleColor(ImGuiCol.ButtonHovered, colColor);
-                ImGui.PushStyleColor(ImGuiCol.ButtonActive, colColor);
-                ImGui.PushStyleColor(ImGuiCol.Text, 0xFFFFFFFF);
-                ImGui.Button(headers[col], cellSize);
-                ImGui.PopStyleColor(4);
-                ImGui.SetWindowFontScale(1.0f);
-            }
-            for (var row = 0; row < 5; row++)
-            {
-                ImGui.TableNextRow();
-                for (var col = 0; col < 5; col++)
-                {
-                    ImGui.TableNextColumn();
-                    var value = board[row, col];
-                    var label = value == 0 ? "FREE" : value.ToString();
-                    var isCalled = state.CalledNumbers.Contains(value) || value == 0;
+                var value = board[row, col];
+                var label = value == 0 ? "FREE" : value.ToString();
+                var isCalled = state.CalledNumbers.Contains(value) || value == 0;
 
-                    if (isCalled) ImGui.PushStyleColor(ImGuiCol.Button, CalledColor);
-                    ImGui.Button(label, cellSize);
-                    if (isCalled) ImGui.PopStyleColor();
-                }
+                if (isCalled) ImGui.PushStyleColor(ImGuiCol.Button, CalledColor);
+                ImGui.Button(label, cellSize);
+                if (isCalled) ImGui.PopStyleColor();
             }
-            ImGui.EndTable();
         }
     }
 
@@ -214,84 +210,86 @@ public partial class MainWindow
 
         var isCooldown = _plugin.IsChatOnCooldown;
         var isLocked = state.IsDrawLocked;
-        if (isCooldown || isLocked) ImGui.BeginDisabled();
 
-        var announceText = isCooldown ? $"Announce Game ({_plugin.ChatCooldownSeconds})" : "Announce Game";
-        if (ImGui.Button(announceText))
+        using (ImRaii.Disabled(isCooldown || isLocked))
         {
-            var prefix = _plugin.GetChatPrefix(_plugin.ActiveChatChannel);
-
-            Plugin.SendChatMessage($"{prefix} Bingo Room {state.RoomCode} created!");
-
-            _plugin.LastChatActionTime = DateTime.UtcNow;
-        }
-
-        var rollText = isCooldown ? $"Roll /random 70 ({_plugin.ChatCooldownSeconds})" : "Roll /random 70";
-        if (ImGui.Button(rollText))
-        {
-            var prefix = _plugin.GetChatPrefix(_plugin.ActiveChatChannel);
-
-            // Map the prefix directly to the correct FFXIV dice command
-            string rollCommand = prefix switch
+            var announceText = isCooldown ? $"Announce Game ({_plugin.ChatCooldownSeconds})" : "Announce Game";
+            if (ImGui.Button(announceText))
             {
-                "/alliance" => "/dice al 70",
-                "/p" => "/dice party 70",
-                _ => "/random 70" // Fallback for Say (/s) or any other unhandled state
-            };
+                var prefix = _plugin.GetChatPrefix(_plugin.ActiveChatChannel);
+                Plugin.SendChatMessage($"{prefix} Bingo Room {state.RoomCode} created!");
+                _plugin.LastChatActionTime = DateTime.UtcNow;
+            }
 
-            Plugin.SendChatMessage(rollCommand);
-
-            _plugin.LastChatActionTime = DateTime.UtcNow;
+            var rollText = isCooldown ? $"Roll /random 70 ({_plugin.ChatCooldownSeconds})" : "Roll /random 70";
+            if (ImGui.Button(rollText))
+            {
+                var prefix = _plugin.GetChatPrefix(_plugin.ActiveChatChannel);
+                string rollCommand = prefix switch
+                {
+                    "/alliance" => "/dice al 70",
+                    "/p" => "/dice party 70",
+                    _ => "/random 70"
+                };
+                Plugin.SendChatMessage(rollCommand);
+                _plugin.LastChatActionTime = DateTime.UtcNow;
+            }
         }
 
         ImGui.SameLine();
-        var smartDrawText = isCooldown ? $"Smart Draw ({_plugin.ChatCooldownSeconds})" : "Smart Draw";
-        if (ImGui.Button(smartDrawText))
+
+        using (ImRaii.Disabled(isCooldown || isLocked))
         {
-            var uncalled = state.GetUncalledNumbers().ToList();
-            var prefix = _plugin.GetChatPrefix(_plugin.ActiveChatChannel);
-            if (uncalled.Count == 0)
+            var smartDrawText = isCooldown ? $"Smart Draw ({_plugin.ChatCooldownSeconds})" : "Smart Draw";
+            if (ImGui.Button(smartDrawText))
             {
-                Plugin.SendChatMessage($"{prefix} All numbers have been called.");
-            }
-            else
-            {
-                var n = uncalled[new Random().Next(uncalled.Count)];
-                state.CallNumber(n);
+                var uncalled = state.GetUncalledNumbers().ToList();
+                var prefix = _plugin.GetChatPrefix(_plugin.ActiveChatChannel);
+                if (uncalled.Count == 0)
+                {
+                    Plugin.SendChatMessage($"{prefix} All numbers have been called.");
+                }
+                else
+                {
+                    var n = uncalled[new Random().Next(uncalled.Count)];
+                    state.CallNumber(n);
 
-                var lingo = _plugin.ActiveEnableBingoLingo ? BingoLingo.GetPhrase(n, state.HostName ?? "Host") : "";
-                var msg = string.IsNullOrEmpty(lingo)
-                    ? $"{prefix} The next number is... {n}."
-                    : $"{prefix} The next number is... {n}. {lingo}!";
+                    var lingo = _plugin.ActiveEnableBingoLingo ? BingoLingo.GetPhrase(n, state.HostName ?? "Host") : "";
+                    var msg = string.IsNullOrEmpty(lingo)
+                        ? $"{prefix} The next number is... {n}."
+                        : $"{prefix} The next number is... {n}. {lingo}!";
 
-                Plugin.SendChatMessage(msg);
+                    Plugin.SendChatMessage(msg);
+                }
+                _plugin.LastChatActionTime = DateTime.UtcNow;
             }
-            _plugin.LastChatActionTime = DateTime.UtcNow;
         }
 
-        if (isCooldown || isLocked) ImGui.EndDisabled();
-        if (isCooldown) ImGui.BeginDisabled();
-        var nrText = isCooldown ? $"Next Round ({_plugin.ChatCooldownSeconds})" : "Next Round";
-        if (ImGui.Button(nrText))
+        using (ImRaii.Disabled(isCooldown))
         {
-            state.NextRound();
-            var prefix = _plugin.GetChatPrefix(_plugin.ActiveChatChannel);
-            Plugin.SendChatMessage($"{prefix} Round {state.RoundNumber} started in room {state.RoomCode}!");
-            _plugin.LastChatActionTime = DateTime.UtcNow;
+            var nrText = isCooldown ? $"Next Round ({_plugin.ChatCooldownSeconds})" : "Next Round";
+            if (ImGui.Button(nrText))
+            {
+                state.NextRound();
+                var prefix = _plugin.GetChatPrefix(_plugin.ActiveChatChannel);
+                Plugin.SendChatMessage($"{prefix} Round {state.RoundNumber} started in room {state.RoomCode}!");
+                _plugin.LastChatActionTime = DateTime.UtcNow;
+            }
         }
-        if (isCooldown) ImGui.EndDisabled();
 
         ImGui.SameLine();
-        if (isCooldown) ImGui.BeginDisabled();
-        var egText = isCooldown ? $"End Game ({_plugin.ChatCooldownSeconds})" : "End Game";
-        if (ImGui.Button(egText))
+
+        using (ImRaii.Disabled(isCooldown))
         {
-            var prefix = _plugin.GetChatPrefix(_plugin.ActiveChatChannel);
-            Plugin.SendChatMessage($"{prefix} The bingo game has ended.");
-            state.LeaveRoom();
-            _plugin.LastChatActionTime = DateTime.UtcNow;
+            var egText = isCooldown ? $"End Game ({_plugin.ChatCooldownSeconds})" : "End Game";
+            if (ImGui.Button(egText))
+            {
+                var prefix = _plugin.GetChatPrefix(_plugin.ActiveChatChannel);
+                Plugin.SendChatMessage($"{prefix} The bingo game has ended.");
+                state.LeaveRoom();
+                _plugin.LastChatActionTime = DateTime.UtcNow;
+            }
         }
-        if (isCooldown) ImGui.EndDisabled();
 
         ImGui.Spacing();
         ImGui.Text("Bingo Output Channel:");

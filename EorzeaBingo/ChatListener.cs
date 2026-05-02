@@ -1,5 +1,6 @@
 using System;
 using System.Text.RegularExpressions;
+using Dalamud.Game.Chat;
 using Dalamud.Game.Text;
 using Dalamud.Game.Text.SeStringHandling;
 using Dalamud.Game.Text.SeStringHandling.Payloads;
@@ -58,14 +59,14 @@ public sealed class ChatListener
         _chatGui.ChatMessage -= OnChatMessage;
     }
 
-    private void OnChatMessage(XivChatType type, int timestamp, ref SeString sender, ref SeString message, ref bool isHandled)
+    private void OnChatMessage(IHandleableChatMessage chatMsg)
     {
-        var playerName = ExtractFullPlayerName(sender);
-        var messageText = message.TextValue;
+        var playerName = ExtractFullPlayerName(chatMsg.Sender);
+        var messageText = chatMsg.Message.TextValue;
         if (string.IsNullOrEmpty(messageText))
             return;
 
-        if (type == XivChatType.SystemMessage || (int)type == 8761)
+        if (chatMsg.LogKind == XivChatType.SystemMessage)
         {
             var lowerText = messageText.ToLowerInvariant();
 
@@ -86,11 +87,10 @@ public sealed class ChatListener
             }
         }
 
-
         var hostDrawMatch = HostDrawRegex.Match(messageText);
         if (hostDrawMatch.Success && _state.IsInRoom)
         {
-            if (!IsFromHost(sender)) return;
+            if (!IsFromHost(chatMsg.Sender)) return;
             if (int.TryParse(hostDrawMatch.Groups[1].Value, out var num) && num >= 1 && num <= 70)
                 ScheduleStateUpdate(() => _state.CallNumber(num));
             return;
@@ -131,7 +131,7 @@ public sealed class ChatListener
             }
 
             if (!isHostRoll)
-                isHostRoll = IsFromHost(sender);
+                isHostRoll = IsFromHost(chatMsg.Sender);
 
             if (!isHostRoll) return;
 
@@ -189,7 +189,7 @@ public sealed class ChatListener
             var roomCode = roomCreatedMatch.Groups[1].Value.ToUpperInvariant();
             var hostName = playerName;
 
-            var hostChannel = GetOutputChannelFromXivChatType(type);
+            var hostChannel = GetOutputChannelFromXivChatType(chatMsg.LogKind);
 
             if (!string.IsNullOrEmpty(roomCode))
             {

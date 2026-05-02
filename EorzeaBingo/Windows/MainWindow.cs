@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Numerics;
 using Dalamud.Interface.Utility;
+using Dalamud.Interface.Utility.Raii;
 using Dalamud.Interface.Windowing;
 using Dalamud.Bindings.ImGui;
 
@@ -32,8 +33,7 @@ public partial class MainWindow : Window, IDisposable
     {
         SizeConstraints = new WindowSizeConstraints
         {
-            MinimumSize = new Vector2(280, 320),
-            MaximumSize = new Vector2(float.MaxValue, float.MaxValue)
+            MinimumSize = new Vector2(280, 320)
         };
 
         _plugin = plugin;
@@ -111,7 +111,8 @@ public partial class MainWindow : Window, IDisposable
 
         if (state.IsHost)
         {
-            if (ImGui.BeginTable("HostLayout", 2))
+            using var hostLayout = ImRaii.Table("HostLayout", 2);
+            if (hostLayout)
             {
                 ImGui.TableSetupColumn("HostBoard", ImGuiTableColumnFlags.WidthStretch, 0.6f);
                 ImGui.TableSetupColumn("PlayerList", ImGuiTableColumnFlags.WidthStretch, 0.4f);
@@ -123,8 +124,6 @@ public partial class MainWindow : Window, IDisposable
 
                 ImGui.TableNextColumn();
                 DrawPlayersTab(state);
-
-                ImGui.EndTable();
             }
         }
         else
@@ -133,22 +132,24 @@ public partial class MainWindow : Window, IDisposable
             ImGui.Spacing();
 
             var isCooldown = _plugin.IsChatOnCooldown;
-            if (isCooldown) ImGui.BeginDisabled();
-            var bingoBtnText = isCooldown ? $"BINGO! ({_plugin.ChatCooldownSeconds})" : "BINGO!";
             var currentRoomCode = state.RoomCode ?? string.Empty;
-            if (ImGui.Button(bingoBtnText))
+
+            using (ImRaii.Disabled(isCooldown))
             {
-                var prefix = _plugin.GetRoomPrefix(currentRoomCode);
-                
-                Plugin.SendChatMessage($"{prefix} BINGO!");
-                _plugin.LastChatActionTime = DateTime.UtcNow;
+                var bingoBtnText = isCooldown ? $"BINGO! ({_plugin.ChatCooldownSeconds})" : "BINGO!";
+                if (ImGui.Button(bingoBtnText))
+                {
+                    var prefix = _plugin.GetRoomPrefix(currentRoomCode);
+                    Plugin.SendChatMessage($"{prefix} BINGO!");
+                    _plugin.LastChatActionTime = DateTime.UtcNow;
+                }
             }
-            if (isCooldown) ImGui.EndDisabled();
+
             ImGui.SameLine();
+
             if (ImGui.Button("Leave Room"))
             {
                 var prefix = _plugin.GetRoomPrefix(currentRoomCode);
-                
                 Plugin.SendChatMessage($"{prefix} has left the Bingo Room.");
                 state.LeaveRoom();
             }
